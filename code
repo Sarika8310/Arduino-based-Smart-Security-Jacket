@@ -1,0 +1,78 @@
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+
+#define BUTTON_PIN 2 // Pin connected to the button
+#define BUZZER_PIN 3 // Pin connected to the buzzer
+
+// GSM Module Configuration
+#define GSM_TX_PIN 4
+#define GSM_RX_PIN 5
+#define GSM_BAUD_RATE 9600
+
+// Define your emergency contact numbers
+String emergencyContacts[] = {"+1234567890", "+1987654321"};
+
+SoftwareSerial gsmSerial(GSM_RX_PIN, GSM_TX_PIN); // RX, TX
+
+TinyGPSPlus gps;
+
+void setup() {
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUZZER_PIN, OUTPUT);
+  
+  // Start serial communication with GPS module
+  Serial.begin(9600);
+  
+  // Start serial communication with GSM module
+  gsmSerial.begin(GSM_BAUD_RATE);
+  
+  delay(1000); // Wait for GSM module to initialize
+}
+
+void loop() {
+  if (digitalRead(BUTTON_PIN) == LOW) { // Button pressed
+    triggerAlarm();
+  }
+  
+  // Check for incoming GPS data
+  while (Serial.available() > 0) {
+    if (gps.encode(Serial.read())) {
+      if (gps.location.isValid()) {
+        sendEmergencySMS(gps.location.lat(), gps.location.lng());
+      }
+    }
+  }
+}
+
+void triggerAlarm() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  
+  // Attempt calling emergency contacts
+  for (int i = 0; i < sizeof(emergencyContacts) / sizeof(emergencyContacts[0]); i++) {
+    callNumber(emergencyContacts[i]);
+  }
+}
+
+void callNumber(String phoneNumber) {
+  gsmSerial.println("ATD" + phoneNumber + ";");
+  delay(10000); // Wait for call attempt
+  gsmSerial.println("ATH"); // Hang up call
+}
+
+void sendEmergencySMS(float latitude, float longitude) {
+  // Construct SMS message with GPS location
+  String message = "I'm in danger! Location: http://maps.google.com/maps?q=" + String(latitude, 6) + "," + String(longitude, 6);
+  
+  for (int i = 0; i < sizeof(emergencyContacts) / sizeof(emergencyContacts[0]); i++) {
+    gsmSerial.println("AT+CMGF=1"); // Set SMS mode to text
+    delay(100);
+    gsmSerial.print("AT+CMGS=\"");
+    gsmSerial.print(emergencyContacts[i]);
+    gsmSerial.println("\"");
+    delay(100);
+    gsmSerial.println(message);
+    delay(100);
+    gsmSerial.write(0x1A); // Send CTRL+Z to indicate end of message
+    delay(10000); // Wait for SMS to send
+  }
+}
